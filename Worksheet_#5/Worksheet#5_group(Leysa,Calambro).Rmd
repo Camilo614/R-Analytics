@@ -13,6 +13,7 @@ library(polite)
 library(dplyr)
 library(httr)
 library(stringr)
+library(ggplot2)
 ```
 
 ```{r}
@@ -21,6 +22,8 @@ url <- "https://www.imdb.com/chart/toptv/?ref_=nv_tvv_250"
 session <- bow(url, user_agent = "Educational")
 session
 ```
+
+1. 
 
 Getting the TV Show title.
 ```{r}
@@ -68,7 +71,7 @@ total_tv_votes
 ```
 Number of Episodes of each TV Shows
 ```{r}
-episodes <- scrape(session) %>% html_nodes("span.sc-5bc66c50-6.OOdsw") %>% html_text
+episodes <- scrape(session) %>% html_nodes("span.sc-6ade9358-7.exckou.cli-title-metadata-item") %>% html_text
 cl_episodes <- gsub("\\D", "", episodes)
 cleaned_ep <- str_extract(episodes, "\\d+(?=\\s*eps)")
 cleaned_ep <- as.numeric(cleaned_ep)
@@ -78,23 +81,111 @@ cleaned_episodes
 ```
 Year of TV Shows released
 ```{r}
-tv_years <- scrape(session) %>% html_nodes("span.sc-5bc66c50-6.OOdsw") %>% html_text
+tv_years <- scrape(session) %>% html_nodes("span.sc-6ade9358-7.exckou.cli-title-metadata-item") %>% html_text
 clyear <- gsub(".*?(\\d{4}(-\\d{4})?).*", "\\1", tv_years)
 yeartv <- str_extract(tv_years, "\\b\\d{4}(-\\d{4})?\\b")
 yeartv <- as.numeric(yeartv)
 yeartv <- yeartv[!is.na(yeartv)]
-tv_year_of_air <- as.data.frame(yeartv[1:25])
+tv_year_of_air <- as.data.frame(yeartv[1:50])
 tv_year_of_air
 ```
 
-Data frame of TV Shows
+Number of User Reviews
 ```{r}
-final_data <- cbind(split_df,tv_rating,cleaned_episodes,tv_year_of_air)
-colnames(final_data) <- c("Ranks", "TV Rating", "Number of Votes", "Number of Episodes", "Year Released")
-final_data
+review <- scrape(session) %>% html_nodes("ul.ipc-inline-list.sc-b782214c-0.bllRjU.baseAlt") %>% html_text
+reviews <- as.data.frame(review[1:50])
+reviews
+#tried several links but still getting NA's.
+```
+Getting the number of Critic Reviews
+```{r}
+critic <- scrape(session) %>% html_nodes("ul.ipc-inline-list.sc-b782214c-0.bllRjU.baseAlt") %>% html_text
+critic_rev <- as.data.frame(critic [1:50])
+critic_rev
+#tried several links but still getting NA's.
+```
+
+Getting the popularity Review
+```{r}
+popularity_review <- scrape(session) %>% html_nodes("div.hero-rating-bar__popularity__down") %>% html_text
+pop <- as.data.frame(popularity_review [1:50])
+pop
+#tried several links but still getting NA's.
 ```
 
 
+
+
+
+Data frame of TV Shows
+```{r}
+final_data <- cbind(split_df,tv_rating,total_tv_votes,cleaned_episodes,tv_year_of_air,reviews,critic_rev,pop)
+colnames(final_data) <- c("Ranks", "TV Show Title", "Rating", "Number of People Voted", "Number of Episodes", "Year Released", "User Reviews", "Critic Reviews", "Popularity Review")
+final_data
+write.csv(final_data, "Top_50_tvshows.csv", row.names = FALSE)
+```
+
+2. 5 TV Shows chosen for user reviews.
+```{r}
+top_5 <- scrape(session) %>% html_nodes("h3.ipc-title__text") %>% html_text(trim = TRUE)
+tv_top5 <- as.data.frame(list(Rank_Title = top_5[2:6]), stringsAsFactors = FALSE)
+split_list <- strsplit(as.character(tv_top5$Rank_Title), "\\.", fixed = FALSE)
+split_Df <- data.frame(do.call(rbind, lapply(split_list, function(x) {
+  if(length(x) == 2) {
+    return(x)
+  } else {
+    return(c(x[1], NA))
+  }
+})), stringsAsFactors = FALSE)[-c(3:4)] 
+colnames(split_Df) <- c("Ranks", "Title") 
+str(split_Df)
+split_Df
+```
+
+Getting the reviewer's name
+```{r}
+urev <- scrape(session) %>% html_nodes("ul.ipc-inline-list.ipc-inline-list--show-dividers.ipc-inline-list--inline.base") %>% html_text
+userev <- as.data.frame(urev)
+userev
+```
+
+Date of Review of the Person
+```{r}
+revdate <- scrape(session) %>% html_nodes("li.ipc-inline-list__item review-date") %>% html_text
+datereview <- as.data.frame(revdate)
+datereview
+```
+
+
+User rating
+```{r}
+user_rate <- scrape(session) %>% html_nodes("span.ipc-rating-star--rating") %>% html_text
+tv_rating <- as.data.frame(rating [1:20])
+tv_rating
+```
+
+
+
+
+3. Graph of each TV show releases each year
+```{r}
+str(final_data$`Year Released`)
+final_data$`Year Released` <- as.numeric(as.character(final_data$`Year Released`))
+fdata <- final_data %>% filter(!is.na(`Year Released`))
+tv_shows_by_year <- final_data %>%
+  group_by(`Year Released`) %>%
+  summarise(num_shows = n()) %>%
+  arrange(`Year Released`)
+
+# Create a time series plot
+ggplot(tv_shows_by_year, aes(x = `Year Released`, y = num_shows)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 2) +
+  labs(title = "Number of TV Shows Released by Year",
+       x = "Year",
+       y = "Number of Shows") +
+  theme_minimal()
+```
 
 
 
