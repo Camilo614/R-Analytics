@@ -1,0 +1,247 @@
+---
+title: "RProject_group(Leysa,Calambro)"
+author: "Camilo Leysa"
+date: "2024-12-05"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+
+---
+
+
+
+Loading necessary libraries
+```{r}
+library(tidyverse)
+library(tidytext)
+library(textdata)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(wordcloud)
+library(RColorBrewer)
+```
+
+
+Loading the data 
+```{r}
+the_data <- read.csv("tweetsDF.csv")
+```
+
+Removing something from the file that preventing the file to knit.
+```{r}
+the_data <- the_data %>%
+  mutate(across(where(is.character), ~ gsub("ใ", "", .)))
+```
+
+
+Preview of the data
+```{r}
+head(the_data)
+tail(the_data)
+```
+
+
+
+
+Getting the total number of each TweetSource and saving as Data Frame
+```{r}
+tweet_count_df <- as.data.frame(table(the_data$tweetSource)) %>%
+  rename(Source = Var1, Count = Freq)
+tweet_count_df
+```
+
+
+Saving the data as CSV
+```{r}
+write.csv(tweet_count_df, file = "TweetSource.csv", row.names = FALSE)
+```
+
+
+Plotting the data of the Tweet_Source
+```{r}
+ggplot(tweet_count_df, aes(x = Source, y = Count, fill = Source)) + geom_bar(stat = "identity") + labs(title = "Tweet Source Distribution", x = "Tweet Source of User", y = "Number of Tweet per Source") + theme_minimal()
+```
+```{r}
+#The plot shows that most tweets come from iPhone users, followed by Android users, and then others outside these categories. It also highlights three sources with the fewest users: dlvr.it, IFTTT, and iPad.
+```
+
+
+
+Getting the number of tweets using the time and plotting it
+
+
+
+Accessing the column of time in the csv file.
+```{r}
+the_data$created <- ymd_hms(the_data$created, tz = "Asia/Manila")
+tweet_rtime <- as.POSIXct(the_data$created, tz = "")
+head(tweet_rtime)
+```
+
+
+Getting the number of tweets every 8 hours 
+#I use 8 hours interval since the data in the dataset has a 3 day data of tweets.
+```{r}
+hour_tweet <- the_data %>%
+  mutate(interval = floor_date(created, "8 hours")) %>%
+  group_by(interval) %>%
+  summarise(count = n(), .groups = 'drop')
+  sum(is.na(the_data$created))
+hour_tweet
+```
+
+Saving the data as CSV
+```{r}
+write.csv(hour_tweet, file = "Tweets_per_8_hours.csv", row.names = FALSE)
+```
+
+
+Plot of the data of based on each time interval
+```{r}
+# Create a line plot
+ggplot(hour_tweet, aes(x = interval, y = count)) +
+  geom_line(color = "blue", size = 1) + 
+  geom_point(color = "red", size = 3) + 
+  labs(title = "Number of Tweets per 8-Hour Interval",
+       x = "Time Interval",
+       y = "Number of Tweets") +
+  theme_minimal() +  
+  scale_x_datetime(date_labels = "%Y-%m-%d %H:%M", date_breaks = "8 hours") +  
+  theme(axis.text.x = element_text(angle = 48, hjust = 1))  
+```
+```{r}
+#The graph shows minimal tweet activity from October 28, 2022, until the early hours of October 29, 2022. A sharp rise occurs between 1:00 A.M to 4 P.M on October 29,peaking at 12118% higher that the previous interval. Activity remains high until midnight, gradually declining below 5000 by 4 P.M on the next day.
+```
+
+
+
+Cleaning of data in comments and make a wordcloud of it.
+
+
+Accessing the data of the comments.
+```{r}
+data_comments <- table(the_data$text)
+head(data_comments)
+```
+
+
+###Removing URL's that are on the comments
+```{r}
+the_data$text <- gsub("http[s]?://\\S+", "", the_data$text)
+head(the_data$text)
+```
+
+
+
+###Setting the comments to lowercase, removing special characters and extra spaces.
+```{r}
+clean_data <- the_data %>% mutate(text = str_to_lower(text), text = str_replace_all(text,"[^a-z ]", ""), text = str_squish(text)) %>% filter(text != "")
+head(clean_data$text)
+```
+
+
+
+Tokenize the Text
+```{r}
+comm_text <- clean_data %>% unnest_tokens(word, text) %>% filter(!word %in% stop_words$word)
+head(comm_text$word)
+```
+```{r}
+#This part makes the comment (text section of the csv) of the user to be word for word in order 
+#to foresee later the most searched word a user search.
+```
+
+
+Removing some unnecessary words manually.
+```{r}
+custom_stop_words <- c("amp", "im", "whats", "omg", "yg", "ros", 
+                        "rn", "ive", "tw", "pls", "youre", "didnt", "shit", 
+                        "words", "bc", "wtf", "fucking", "yall", "fuck", 
+                        "africalink", "sm", "abt", "sa", "york", "damn",
+                        "wont", "due", "wasnt", "dont", "ใ" )
+
+```
+
+Filtering this unnecessary words to the data
+```{r}
+comm_text <- comm_text %>%
+  filter(!word %in% custom_stop_words)
+```
+
+
+
+Creating a term frequency table
+```{r}
+word_frequnency <- comm_text %>% count(word, sort = TRUE)
+head(word_frequnency)
+tail(word_frequnency)
+```
+
+
+
+Loading a sentiment using bing.
+```{r}
+bing <- get_sentiments("bing")
+comment_sentiment <- comm_text %>% inner_join(bing, by = "word")
+head(comment_sentiment)
+tail(comment_sentiment)
+```
+
+Saving the data using RData
+```{r}
+save(comment_sentiment, file = "Word_sentiments.RData")
+```
+
+
+
+Analyzing the Sentiment by getting the total number of each sentiment
+```{r}
+summary_sentiment <- comment_sentiment %>% count(sentiment) %>% pivot_wider(names_from = sentiment, values_from = n, values_fill = 0)
+sentiment_summary <- summary_sentiment %>% mutate(net_sentiment = negative - positive)
+sentiment_summary
+```
+
+```{r}
+sentiment_long <- sentiment_summary %>%
+  pivot_longer(cols = c(positive, negative), names_to = "sentiment_type", values_to = "count")
+
+ggplot(sentiment_long, aes(x = sentiment_type, y = count, fill = sentiment_type)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sentiment Counts", x = "Sentiment Type", y = "Count") +
+  theme_minimal()
+```
+Description or Insights
+```{r}
+#Based on the graph above, we can see that there are a lot of negative comments based on the tweets 
+# compare to the positive ones. Some of this tweets maybe because of their emotions in the incident
+# in Itaewon. Some of them tweets maybe because they are angry at what happened feel sadness, surprised
+# or fear.
+```
+
+
+
+Visualization of Result using WordCloud
+```{r}
+set.seed(5000)
+wordcloud(words = word_frequnency$word, 
+          freq = word_frequnency$n, 
+          min.freq = 1, 
+          max.words = 100, 
+          random.order = FALSE, 
+          rot.per = 0.35, 
+          scale = c(3, 0.5), 
+          colors = brewer.pal(8, "Dark2"))
+```
+Description or Insights
+```{r}
+#The word cloud shows that 'itaewon' is the most frequent term in the tweets, standing out more than other words. Other common words include 'people,' 'pray,' 'halloween,' 'happened,' 'incident,' and 'victims,' but they are less frequent than 'itaewon.'
+```
+
+
+
+
+
+
+
+
